@@ -34,6 +34,9 @@ resource "aws_instance" "dev-instance-windows-aws" {
 # Basic Windows configuration
 Write-Host "Configuring Windows instance..."
 
+# Add ec2-user to Remote Management Users group
+Add-LocalGroupMember -Group "Remote Management Users" -Member "ec2-user"
+
 # Enable RDP
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
 Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
@@ -77,6 +80,7 @@ Write-Host "Configuring Windows instance as on-premise simulation..."
 $Password = ConvertTo-SecureString "Letmein2021" -AsPlainText -Force
 New-LocalUser "ec2-user" -Password $Password -FullName "EC2 User" -Description "Local user for on-premise simulation"
 Add-LocalGroupMember -Group "Administrators" -Member "ec2-user"
+Add-LocalGroupMember -Group "Remote Management Users" -Member "ec2-user"
 
 # Enable RDP
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
