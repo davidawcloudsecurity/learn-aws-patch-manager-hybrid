@@ -33,7 +33,10 @@ resource "aws_instance" "dev-instance-windows-aws" {
 <powershell>
 # Basic Windows configuration
 Write-Host "Configuring Windows instance..."
-
+# Create local user ec2-user with password
+$Password = ConvertTo-SecureString "Letmein2021" -AsPlainText -Force
+New-LocalUser "ec2-user" -Password $Password -FullName "EC2 User" -Description "Local user for on-premise simulation"
+Add-LocalGroupMember -Group "Administrators" -Member "ec2-user"
 # Add ec2-user to Remote Management Users group
 Add-LocalGroupMember -Group "Remote Management Users" -Member "ec2-user"
 
@@ -42,7 +45,7 @@ Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' 
 Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
 # Set timezone
-Set-TimeZone -Id "Eastern Standard Time"
+Set-TimeZone -Id "Singapore Standard Time"
 
 Write-Host "Windows configuration completed."
 </powershell>
@@ -87,7 +90,7 @@ Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' 
 Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
 # Set timezone
-Set-TimeZone -Id "Eastern Standard Time"
+Set-TimeZone -Id "Singapore Standard Time"
 
 Write-Host "On-premise simulation configuration completed."
 Write-Host "User: ec2-user | Password: Letmein2021"
@@ -100,14 +103,39 @@ EOF
   }
 }
 
-# VPC Peering
-resource "aws_vpc_peering_connection" "default-peering-onpremise" {
-  # peer_owner_id = var.peer_owner_id
-  peer_vpc_id   = aws_vpc.terraform-default-vpc-aws.id
-  vpc_id        = aws_vpc.terraform-default-vpc-onpremise.id
-  auto_accept   = true
+# Transit Gateway
+resource "aws_ec2_transit_gateway" "main" {
+  description                     = "Transit Gateway for AWS and On-Premise VPC connectivity"
+  default_route_table_association = "enable"
+  default_route_table_propagation = "enable"
+  dns_support                     = "enable"
+  
   tags = {
-    Name = "VPC Peering between aws and onpremise"
+    Name = "tgw-aws-onpremise"
+  }
+}
+
+# TGW Attachment for AWS VPC
+resource "aws_ec2_transit_gateway_vpc_attachment" "aws_vpc" {
+  subnet_ids         = [aws_subnet.terraform-private-subnet-aws.id]
+  transit_gateway_id = aws_ec2_transit_gateway.main.id
+  vpc_id             = aws_vpc.terraform-default-vpc-aws.id
+  dns_support        = "enable"
+  
+  tags = {
+    Name = "tgw-attachment-aws-vpc"
+  }
+}
+
+# TGW Attachment for On-Premise VPC
+resource "aws_ec2_transit_gateway_vpc_attachment" "onpremise_vpc" {
+  subnet_ids         = [aws_subnet.terraform-private-subnet-onpremise.id]
+  transit_gateway_id = aws_ec2_transit_gateway.main.id
+  vpc_id             = aws_vpc.terraform-default-vpc-onpremise.id
+  dns_support        = "enable"
+  
+  tags = {
+    Name = "tgw-attachment-onpremise-vpc"
   }
 }
 
@@ -181,8 +209,8 @@ resource "aws_route_table" "terraform-public-route-table-aws" {
     gateway_id = aws_internet_gateway.terraform-default-igw-aws.id
   }
   route {
-    cidr_block    = aws_vpc.terraform-default-vpc-onpremise.cidr_block
-    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-onpremise.id   
+    cidr_block         = aws_vpc.terraform-default-vpc-onpremise.cidr_block
+    transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
     
   tags = {
@@ -193,13 +221,11 @@ resource "aws_route_table" "terraform-public-route-table-aws" {
 resource "aws_route_table" "terraform-private-route-table-aws" {
   vpc_id = aws_vpc.terraform-default-vpc-aws.id
 
-  # Comment this out to cut cost and focus on igw only
-  /*
   route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_nat_gateway.terraform-ngw.id
+    cidr_block         = aws_vpc.terraform-default-vpc-onpremise.cidr_block
+    transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
-*/
+
   tags = {
     Name = "terraform-private-route-table-aws"
   }
@@ -209,12 +235,12 @@ resource "aws_route_table" "terraform-private-route-table-aws" {
 resource "aws_route_table" "terraform-public-route-table-onpremise" {
   vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
   route {
-    cidr_block = "0.0.0.0/0"
-    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-onpremise.id 
+    cidr_block         = "0.0.0.0/0"
+    transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
   route {
-    cidr_block = aws_vpc.terraform-default-vpc-aws.cidr_block
-    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-onpremise.id 
+    cidr_block         = aws_vpc.terraform-default-vpc-aws.cidr_block
+    transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
 
   tags = {
@@ -222,23 +248,14 @@ resource "aws_route_table" "terraform-public-route-table-onpremise" {
   }
 }
 
-/*
-# This append the vpc peering connection to the aws route table
-resource "aws_route" "route-vpc-peering-aws" {
-  route_table_id            = aws_route_table.terraform-public-route-table-aws.id
-  destination_cidr_block    = aws_vpc.terraform-default-vpc-onpremise.cidr_block
-  vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-onpremise.id    
-}
-*/
 resource "aws_route_table" "terraform-private-route-table-onpremise" {
   vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
 
-  # Route all traffic through VPC peering (simulating on-premise to AWS connection)
-  # Note: This won't provide internet access due to VPC peering non-transitive nature
+  # Route all traffic through Transit Gateway (simulating on-premise to AWS connection)
   # This simulates a Direct Connect or VPN connection from on-premise to AWS
   route {
-    cidr_block = "0.0.0.0/0"
-    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-onpremise.id
+    cidr_block         = "0.0.0.0/0"
+    transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
   
   tags = {
@@ -378,25 +395,17 @@ resource "aws_security_group" "terraform-public-facing-db-sg-onpremise" {
   }
 }
 
-# Create private security group for onpremise - allow RDP from aws VPC
+# Create private security group for onpremise - allow all traffic from aws VPC
 resource "aws_security_group" "terraform-db-sg-onpremise" {
   vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
   name   = "private-facing-db-sg-onpremise"
 
   ingress {
-    from_port   = 3389
-    to_port     = 3389
-    protocol    = "tcp"
-    cidr_blocks = [aws_vpc.terraform-default-vpc-aws.cidr_block]
-    description = "Allow RDP from aws VPC"
-  }
-
-  ingress {
     from_port   = -1
     to_port     = -1
-    protocol    = "icmp"
+    protocol    = "-1"
     cidr_blocks = [aws_vpc.terraform-default-vpc-aws.cidr_block]
-    description = "Allow ICMP from aws VPC"
+    description = "Allow all traffic from aws VPC"
   }
 
   egress {
@@ -464,5 +473,87 @@ resource "aws_iam_instance_profile" "ssm_instance_profile" {
 
   tags = {
     Name = "SSM-Instance-Profile"
+  }
+}
+
+# VPC Endpoints in AWS VPC for SSM access from on-premise
+resource "aws_security_group" "vpc_endpoint_sg" {
+  vpc_id = aws_vpc.terraform-default-vpc-aws.id
+  name   = "vpc-endpoint-sg"
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [
+      aws_vpc.terraform-default-vpc-aws.cidr_block,
+      aws_vpc.terraform-default-vpc-onpremise.cidr_block
+    ]
+    description = "Allow HTTPS from both VPCs"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "vpc-endpoint-sg"
+  }
+}
+
+resource "aws_vpc_endpoint" "ssm" {
+  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
+  service_name        = "com.amazonaws.us-east-1.ssm"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
+  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "ssm-endpoint"
+  }
+}
+
+resource "aws_vpc_endpoint" "ssmmessages" {
+  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
+  service_name        = "com.amazonaws.us-east-1.ssmmessages"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
+  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "ssmmessages-endpoint"
+  }
+}
+
+resource "aws_vpc_endpoint" "ec2messages" {
+  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
+  service_name        = "com.amazonaws.us-east-1.ec2messages"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
+  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "ec2messages-endpoint"
+  }
+}
+
+# S3 Gateway Endpoint (free!)
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.terraform-default-vpc-aws.id
+  service_name      = "com.amazonaws.us-east-1.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [
+    aws_route_table.terraform-private-route-table-aws.id,
+    aws_route_table.terraform-public-route-table-aws.id
+  ]
+
+  tags = {
+    Name = "s3-endpoint"
   }
 }
