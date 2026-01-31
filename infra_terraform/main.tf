@@ -23,7 +23,8 @@ resource "aws_instance" "dev-instance-windows-master" {
   vpc_security_group_ids = [
     aws_security_group.terraform-public-facing-db-sg-master.id # public-facing-security-group
   ]
-  source_dest_check = true
+  source_dest_check       = true
+  disable_api_termination = false
   root_block_device {
     volume_type           = "gp2"
     delete_on_termination = true
@@ -61,7 +62,8 @@ resource "aws_instance" "dev-instance-windows-slave" {
   vpc_security_group_ids = [
     aws_security_group.terraform-db-sg-slave.id # private-facing-security-group
   ]
-  source_dest_check = true
+  source_dest_check       = true
+  disable_api_termination = false
   root_block_device {
     volume_type           = "gp2"
     delete_on_termination = true
