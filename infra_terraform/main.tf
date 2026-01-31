@@ -342,8 +342,8 @@ resource "aws_security_group" "terraform-public-facing-db-sg-aws" {
   }
 
   ingress {
-    from_port   = -1
-    to_port     = -1
+    from_port   = 0
+    to_port     = 0
     protocol    = "icmp"
     cidr_blocks = [aws_subnet.terraform-public-subnet-aws.cidr_block]
     description = "Allow ICMP from aws public subnet"
