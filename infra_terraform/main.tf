@@ -500,83 +500,17 @@ resource "aws_iam_instance_profile" "ssm_instance_profile" {
   }
 }
 
-# VPC Endpoints in AWS VPC for SSM access from on-premise
-resource "aws_security_group" "vpc_endpoint_sg" {
-  vpc_id = aws_vpc.terraform-default-vpc-aws.id
-  name   = "vpc-endpoint-sg"
-
-  ingress {
-    from_port = 443
-    to_port   = 443
-    protocol  = "tcp"
-    cidr_blocks = [
-      aws_vpc.terraform-default-vpc-aws.cidr_block,
-      aws_vpc.terraform-default-vpc-onpremise.cidr_block
-    ]
-    description = "Allow HTTPS from both VPCs"
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+# S3 Gateway Endpoint for On-Premise VPC (free!)
+resource "aws_vpc_endpoint" "s3_onpremise" {
+  vpc_id            = aws_vpc.terraform-default-vpc-onpremise.id
+  service_name      = "com.amazonaws.us-east-1.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids = [
+    aws_route_table.terraform-private-route-table-onpremise.id,
+    aws_route_table.terraform-public-route-table-onpremise.id
+  ]
 
   tags = {
-    Name = "vpc-endpoint-sg"
-  }
-}
-
-resource "aws_vpc_endpoint" "ssm" {
-  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
-  service_name        = "com.amazonaws.us-east-1.ssm"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
-  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "ssm-endpoint"
-  }
-}
-
-resource "aws_vpc_endpoint" "ssmmessages" {
-  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
-  service_name        = "com.amazonaws.us-east-1.ssmmessages"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
-  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "ssmmessages-endpoint"
-  }
-}
-
-resource "aws_vpc_endpoint" "ec2messages" {
-  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
-  service_name        = "com.amazonaws.us-east-1.ec2messages"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
-  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "ec2messages-endpoint"
-  }
-}
-
-# S3 Interface Endpoint (works across TGW!)
-resource "aws_vpc_endpoint" "s3" {
-  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
-  service_name        = "com.amazonaws.us-east-1.s3"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
-  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
-  private_dns_enabled = false # Cannot enable private DNS for S3 interface endpoints
-
-  tags = {
-    Name = "s3-interface-endpoint"
+    Name = "s3-endpoint-onpremise"
   }
 }
