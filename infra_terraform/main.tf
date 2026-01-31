@@ -204,14 +204,21 @@ resource "aws_subnet" "terraform-private-subnet-onpremise" {
 # How to create custom route table
 resource "aws_route_table" "terraform-public-route-table-aws" {
   vpc_id = aws_vpc.terraform-default-vpc-aws.id
+  
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.terraform-default-igw-aws.id
   }
+  
   route {
     cidr_block         = aws_vpc.terraform-default-vpc-onpremise.cidr_block
     transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
+  
+  depends_on = [
+    aws_ec2_transit_gateway_vpc_attachment.aws_vpc,
+    aws_ec2_transit_gateway_vpc_attachment.onpremise_vpc
+  ]
     
   tags = {
     Name = "terraform-public-route-table-aws"
@@ -225,6 +232,11 @@ resource "aws_route_table" "terraform-private-route-table-aws" {
     cidr_block         = aws_vpc.terraform-default-vpc-onpremise.cidr_block
     transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
+  
+  depends_on = [
+    aws_ec2_transit_gateway_vpc_attachment.aws_vpc,
+    aws_ec2_transit_gateway_vpc_attachment.onpremise_vpc
+  ]
 
   tags = {
     Name = "terraform-private-route-table-aws"
@@ -234,14 +246,21 @@ resource "aws_route_table" "terraform-private-route-table-aws" {
 # How to create custom route table
 resource "aws_route_table" "terraform-public-route-table-onpremise" {
   vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
+  
   route {
     cidr_block         = "0.0.0.0/0"
     transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
+  
   route {
     cidr_block         = aws_vpc.terraform-default-vpc-aws.cidr_block
     transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
+  
+  depends_on = [
+    aws_ec2_transit_gateway_vpc_attachment.aws_vpc,
+    aws_ec2_transit_gateway_vpc_attachment.onpremise_vpc
+  ]
 
   tags = {
     Name = "terraform-public-route-table-onpremise"
@@ -257,6 +276,11 @@ resource "aws_route_table" "terraform-private-route-table-onpremise" {
     cidr_block         = "0.0.0.0/0"
     transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
+  
+  depends_on = [
+    aws_ec2_transit_gateway_vpc_attachment.aws_vpc,
+    aws_ec2_transit_gateway_vpc_attachment.onpremise_vpc
+  ]
   
   tags = {
     Name = "terraform-private-route-table-onpremise"
