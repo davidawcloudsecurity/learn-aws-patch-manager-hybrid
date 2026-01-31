@@ -567,17 +567,16 @@ resource "aws_vpc_endpoint" "ec2messages" {
   }
 }
 
-# S3 Gateway Endpoint (free!)
+# S3 Interface Endpoint (works across TGW!)
 resource "aws_vpc_endpoint" "s3" {
-  vpc_id            = aws_vpc.terraform-default-vpc-aws.id
-  service_name      = "com.amazonaws.us-east-1.s3"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids = [
-    aws_route_table.terraform-private-route-table-aws.id,
-    aws_route_table.terraform-public-route-table-aws.id
-  ]
+  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
+  service_name        = "com.amazonaws.us-east-1.s3"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
+  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
+  private_dns_enabled = false # Cannot enable private DNS for S3 interface endpoints
 
   tags = {
-    Name = "s3-endpoint"
+    Name = "s3-interface-endpoint"
   }
 }
