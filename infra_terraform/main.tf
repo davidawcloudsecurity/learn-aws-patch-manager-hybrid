@@ -11,166 +11,95 @@ provider "aws" {
 }
 
 # Create instance in one of the subnet
-resource "aws_instance" "dev-instance-linux2-master" {
-  ami                         = "ami-018ba43095ff50d08"
-  instance_type               = "t2.micro"
-  key_name                    = "ambience-developer-cloud"
+resource "aws_instance" "dev-instance-windows-master" {
+  ami                         = "ami-0f73246b6299f4858"
+  instance_type               = "t3.large"
   availability_zone           = "us-east-1a"
   tenancy                     = "default"
   subnet_id                   = aws_subnet.terraform-public-subnet-master.id # Public Subnet A
   ebs_optimized               = false
   associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.ssm_instance_profile.name
   vpc_security_group_ids = [
     aws_security_group.terraform-public-facing-db-sg-master.id # public-facing-security-group
   ]
   source_dest_check = true
   root_block_device {
-    #volume_size           = 50
     volume_type           = "gp2"
     delete_on_termination = true
   }
   user_data = <<EOF
-#!/bin/bash
-# Define the path to the sshd_config file
-sshd_config="/etc/ssh/sshd_config"
+<powershell>
+# Basic Windows configuration
+Write-Host "Configuring Windows instance..."
 
-# Define the string to be replaced
-old_string="PasswordAuthentication no"
-new_string="PasswordAuthentication yes"
+# Enable RDP
+Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-# Check if the file exists
-if [ -e "$sshd_config" ]; then
-    # Use sed to replace the old string with the new string
-    sudo sed -i "s/$old_string/$new_string/" "$sshd_config"
+# Set timezone
+Set-TimeZone -Id "Eastern Standard Time"
 
-    # Check if the sed command was successful
-    if [ $? -eq 0 ]; then
-        echo "String replaced successfully."
-        # Restart the SSH service to apply the changes
-        sudo service ssh restart
-    else
-        echo "Error replacing string in $sshd_config."
-    fi
-else
-    echo "File $sshd_config not found."
-fi
-
-echo "Letmein2021" | passwd --stdin ec2-user
-systemctl restart sshd
-
-# Install Docker
-yum update -y
-yum install docker -y
-systemctl start docker
-
-# Pull and run Ambience from Docker
-yum install git -y
-cd /home/ec2-user
-git clone https://github.com/ambience-cloud/elixir-ambience.git
-curl -L "https://github.com/docker/compose/releases/download/1.23.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
-ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
-cd elixir-ambience
-
-# sed -i 's/"//g' ".env"
-# sed -i 's/mongourl=mongodb:\/\/mongo:27017/mongourl=mongodb:\/\/10.2.4.199:27017/g' ".env"
-# sed -i 's/externalhost=localhost/externalhost=testssl123.click/g' ".env"
-# sed -i 's/externalport=1740/externalport=443/g' ".env"
-# sed -i 's/externalprotocol=http/externalprotocol=https/g' ".env"
-cat << EOF3 > ./docker-compose.yaml
-version: "3"
-services:
-  elixir-ambience:
-    container_name: elixir-ambience
-    image: elixirtech/elixir-ambience
-    environment:
-       #mongodb running in host for Windows and OSx
-       #mongodb part of docker compose
-       - mongourl=$\{mongourl\}
-       - externalhost=$\{externalhost\}
-       - externalport=$\{externalport\}
-       - externalprotocol=$\{externalprotocol\}
-    ports:
-       - 1740:1740
-#volumes:
-#  elixirmongodbdata:
-EOF3
-sed -i 's/\\//g' "./docker-compose.yaml"
-# docker-compose up
+Write-Host "Windows configuration completed."
+</powershell>
 EOF
 
   tags = {
-    Name = "dev-instance-linux2-terraform-master"
+    Name = "dev-instance-windows-terraform-master"
   }
 }
 
-# Create instance in one of the subnet
-resource "aws_instance" "dev-instance-linux2-slave" {
-  ami                         = "ami-018ba43095ff50d08"
-  instance_type               = "t2.micro"
-  key_name                    = "ambience-developer-cloud"
+# Create instance in private subnet to simulate on-premise server
+resource "aws_instance" "dev-instance-windows-slave" {
+  ami                         = "ami-0f73246b6299f4858"
+  instance_type               = "t3.large"
   availability_zone           = "us-east-1b"
   tenancy                     = "default"
-  subnet_id                   = aws_subnet.terraform-public-subnet-slave.id # Public Subnet A
+  subnet_id                   = aws_subnet.terraform-private-subnet-slave.id # Private Subnet - simulating on-premise
   ebs_optimized               = false
-  associate_public_ip_address = true
+  associate_public_ip_address = false # No public IP - simulating on-premise
   vpc_security_group_ids = [
-    aws_security_group.terraform-public-facing-db-sg-slave.id # public-facing-security-group
+    aws_security_group.terraform-db-sg-slave.id # private-facing-security-group
   ]
   source_dest_check = true
   root_block_device {
-    #volume_size           = 50
     volume_type           = "gp2"
     delete_on_termination = true
   }
   user_data = <<EOF
-#!/bin/bash
-yum update -y
-yum install docker -y
-systemctl start docker
-usermod -a -G docker ec2-user
-newgrp docker
-systemctl start docker
-docker run --network host -d mongo
+<powershell>
+# Basic Windows configuration for on-premise simulation
+Write-Host "Configuring Windows instance as on-premise simulation..."
 
-# Define the path to the sshd_config file
-sshd_config="/etc/ssh/sshd_config"
+# Create local user ec2-user with password
+$Password = ConvertTo-SecureString "Letmein2021" -AsPlainText -Force
+New-LocalUser "ec2-user" -Password $Password -FullName "EC2 User" -Description "Local user for on-premise simulation"
+Add-LocalGroupMember -Group "Administrators" -Member "ec2-user"
 
-# Define the string to be replaced
-old_string="PasswordAuthentication no"
-new_string="PasswordAuthentication yes"
+# Enable RDP
+Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-# Check if the file exists
-if [ -e "$sshd_config" ]; then
-    # Use sed to replace the old string with the new string
-    sudo sed -i "s/$old_string/$new_string/" "$sshd_config"
+# Set timezone
+Set-TimeZone -Id "Eastern Standard Time"
 
-    # Check if the sed command was successful
-    if [ $? -eq 0 ]; then
-        echo "String replaced successfully."
-        # Restart the SSH service to apply the changes
-        sudo service ssh restart
-    else
-        echo "Error replacing string in $sshd_config."
-    fi
-else
-    echo "File $sshd_config not found."
-fi
-echo "Letmein2021" | passwd --stdin ec2-user
-systemctl restart sshd
+Write-Host "On-premise simulation configuration completed."
+Write-Host "User: ec2-user | Password: Letmein2021"
+Write-Host "This instance has no direct internet access - use SSM hybrid activation for management"
+</powershell>
 EOF
 
   tags = {
-    Name = "dev-instance-linux2-terraform-slave"
+    Name = "dev-instance-windows-terraform-slave-onpremise"
   }
 }
 
 # VPC Peering
 resource "aws_vpc_peering_connection" "default-peering-slave" {
   # peer_owner_id = var.peer_owner_id
-  peer_vpc_id   = aws_vpc.terraform-default-vpc-master.id
-  vpc_id        = aws_vpc.terraform-default-vpc-slave.id
-  auto_accept   = true
+  peer_vpc_id = aws_vpc.terraform-default-vpc-master.id
+  vpc_id      = aws_vpc.terraform-default-vpc-slave.id
+  auto_accept = true
   tags = {
     Name = "VPC Peering between master and slave"
   }
@@ -187,12 +116,12 @@ resource "aws_vpc" "terraform-default-vpc-master" {
 }
 
 resource "aws_vpc" "terraform-default-vpc-slave" {
-  cidr_block           = "10.2.0.0/16"
+  cidr_block           = "172.16.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
 
   tags = {
-    Name = "learn-terraform-vpc-slave"
+    Name = "learn-terraform-vpc-slave-onpremise"
   }
 }
 
@@ -220,7 +149,7 @@ resource "aws_subnet" "terraform-private-subnet-master" {
 # How to create public / private subnet
 resource "aws_subnet" "terraform-public-subnet-slave" {
   vpc_id            = aws_vpc.terraform-default-vpc-slave.id
-  cidr_block        = "10.2.1.0/24"
+  cidr_block        = "172.16.1.0/24"
   availability_zone = "us-east-1b"
 
   tags = {
@@ -230,11 +159,11 @@ resource "aws_subnet" "terraform-public-subnet-slave" {
 
 resource "aws_subnet" "terraform-private-subnet-slave" {
   vpc_id            = aws_vpc.terraform-default-vpc-slave.id
-  cidr_block        = "10.2.2.0/24"
+  cidr_block        = "172.16.2.0/24"
   availability_zone = "us-east-1b"
 
   tags = {
-    Name = "terrform-private-subnet-slave-B"
+    Name = "terrform-private-subnet-slave-B-onpremise"
   }
 }
 
@@ -246,10 +175,10 @@ resource "aws_route_table" "terraform-public-route-table-master" {
     gateway_id = aws_internet_gateway.terraform-default-igw-master.id
   }
   route {
-    cidr_block    = aws_vpc.terraform-default-vpc-slave.cidr_block
-    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id   
+    cidr_block                = aws_vpc.terraform-default-vpc-slave.cidr_block
+    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id
   }
-    
+
   tags = {
     Name = "terraform-public-route-table-master"
   }
@@ -274,12 +203,12 @@ resource "aws_route_table" "terraform-private-route-table-master" {
 resource "aws_route_table" "terraform-public-route-table-slave" {
   vpc_id = aws_vpc.terraform-default-vpc-slave.id
   route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.terraform-default-igw-slave.id
+    cidr_block                = "0.0.0.0/0"
+    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id
   }
-    route {
-    cidr_block = aws_vpc.terraform-default-vpc-master.cidr_block
-    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id 
+  route {
+    cidr_block                = aws_vpc.terraform-default-vpc-master.cidr_block
+    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id
   }
 
   tags = {
@@ -298,14 +227,16 @@ resource "aws_route" "route-vpc-peering-master" {
 resource "aws_route_table" "terraform-private-route-table-slave" {
   vpc_id = aws_vpc.terraform-default-vpc-slave.id
 
-  # Comment this out to cut cost and focus on igw only
-/*  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_nat_gateway.terraform-ngw.id
+  # Route all traffic through VPC peering (simulating on-premise to AWS connection)
+  # Note: This won't provide internet access due to VPC peering non-transitive nature
+  # This simulates a Direct Connect or VPN connection from on-premise to AWS
+  route {
+    cidr_block                = "0.0.0.0/0"
+    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id
   }
-*/  
+
   tags = {
-    Name = "terraform-private-route-table-slave"
+    Name = "terraform-private-route-table-slave-onpremise"
   }
 }
 
@@ -425,17 +356,25 @@ resource "aws_security_group" "terraform-public-facing-db-sg-slave" {
   }
 }
 
-# Create private security group
+# Create private security group for slave - allow RDP from master VPC
 resource "aws_security_group" "terraform-db-sg-slave" {
   vpc_id = aws_vpc.terraform-default-vpc-slave.id
   name   = "private-facing-db-sg-slave"
 
   ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-    # Allow traffic from private subnets
+    from_port   = 3389
+    to_port     = 3389
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.terraform-default-vpc-master.cidr_block]
+    description = "Allow RDP from master VPC"
+  }
+
+  ingress {
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = [aws_vpc.terraform-default-vpc-master.cidr_block]
+    description = "Allow ICMP from master VPC"
   }
 
   egress {
@@ -467,3 +406,41 @@ resource "aws_nat_gateway" "terraform-ngw" {
       }
 }
 */
+
+# IAM Role for SSM
+resource "aws_iam_role" "ssm_role" {
+  name = "SSMRoleForEC2"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name = "SSM-Role-For-EC2"
+  }
+}
+
+# Attach AWS managed policy for SSM
+resource "aws_iam_role_policy_attachment" "ssm_policy" {
+  role       = aws_iam_role.ssm_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+# Create instance profile
+resource "aws_iam_instance_profile" "ssm_instance_profile" {
+  name = "SSMInstanceProfile"
+  role = aws_iam_role.ssm_role.name
+
+  tags = {
+    Name = "SSM-Instance-Profile"
+  }
+}
