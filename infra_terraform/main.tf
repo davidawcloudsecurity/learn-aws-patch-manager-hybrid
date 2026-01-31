@@ -11,8 +11,8 @@ provider "aws" {
 }
 
 # Create instance in one of the subnet
-resource "aws_instance" "dev-instance-linux2-master" {
-  ami                         = "ami-018ba43095ff50d08"
+resource "aws_instance" "dev-instance-windows-master" {
+  ami                         = "ami-0f73246b6299f4858"
   instance_type               = "t2.micro"
   key_name                    = "ambience-developer-cloud"
   availability_zone           = "us-east-1a"
@@ -25,88 +25,33 @@ resource "aws_instance" "dev-instance-linux2-master" {
   ]
   source_dest_check = true
   root_block_device {
-    #volume_size           = 50
     volume_type           = "gp2"
     delete_on_termination = true
   }
   user_data = <<EOF
-#!/bin/bash
-# Define the path to the sshd_config file
-sshd_config="/etc/ssh/sshd_config"
+<powershell>
+# Basic Windows configuration
+Write-Host "Configuring Windows instance..."
 
-# Define the string to be replaced
-old_string="PasswordAuthentication no"
-new_string="PasswordAuthentication yes"
+# Enable RDP
+Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-# Check if the file exists
-if [ -e "$sshd_config" ]; then
-    # Use sed to replace the old string with the new string
-    sudo sed -i "s/$old_string/$new_string/" "$sshd_config"
+# Set timezone
+Set-TimeZone -Id "Eastern Standard Time"
 
-    # Check if the sed command was successful
-    if [ $? -eq 0 ]; then
-        echo "String replaced successfully."
-        # Restart the SSH service to apply the changes
-        sudo service ssh restart
-    else
-        echo "Error replacing string in $sshd_config."
-    fi
-else
-    echo "File $sshd_config not found."
-fi
-
-echo "Letmein2021" | passwd --stdin ec2-user
-systemctl restart sshd
-
-# Install Docker
-yum update -y
-yum install docker -y
-systemctl start docker
-
-# Pull and run Ambience from Docker
-yum install git -y
-cd /home/ec2-user
-git clone https://github.com/ambience-cloud/elixir-ambience.git
-curl -L "https://github.com/docker/compose/releases/download/1.23.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
-ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
-cd elixir-ambience
-
-# sed -i 's/"//g' ".env"
-# sed -i 's/mongourl=mongodb:\/\/mongo:27017/mongourl=mongodb:\/\/10.2.4.199:27017/g' ".env"
-# sed -i 's/externalhost=localhost/externalhost=testssl123.click/g' ".env"
-# sed -i 's/externalport=1740/externalport=443/g' ".env"
-# sed -i 's/externalprotocol=http/externalprotocol=https/g' ".env"
-cat << EOF3 > ./docker-compose.yaml
-version: "3"
-services:
-  elixir-ambience:
-    container_name: elixir-ambience
-    image: elixirtech/elixir-ambience
-    environment:
-       #mongodb running in host for Windows and OSx
-       #mongodb part of docker compose
-       - mongourl=$\{mongourl\}
-       - externalhost=$\{externalhost\}
-       - externalport=$\{externalport\}
-       - externalprotocol=$\{externalprotocol\}
-    ports:
-       - 1740:1740
-#volumes:
-#  elixirmongodbdata:
-EOF3
-sed -i 's/\\//g' "./docker-compose.yaml"
-# docker-compose up
+Write-Host "Windows configuration completed."
+</powershell>
 EOF
 
   tags = {
-    Name = "dev-instance-linux2-terraform-master"
+    Name = "dev-instance-windows-terraform-master"
   }
 }
 
 # Create instance in one of the subnet
-resource "aws_instance" "dev-instance-linux2-slave" {
-  ami                         = "ami-018ba43095ff50d08"
+resource "aws_instance" "dev-instance-windows-slave" {
+  ami                         = "ami-0f73246b6299f4858"
   instance_type               = "t2.micro"
   key_name                    = "ambience-developer-cloud"
   availability_zone           = "us-east-1b"
@@ -119,49 +64,27 @@ resource "aws_instance" "dev-instance-linux2-slave" {
   ]
   source_dest_check = true
   root_block_device {
-    #volume_size           = 50
     volume_type           = "gp2"
     delete_on_termination = true
   }
   user_data = <<EOF
-#!/bin/bash
-yum update -y
-yum install docker -y
-systemctl start docker
-usermod -a -G docker ec2-user
-newgrp docker
-systemctl start docker
-docker run --network host -d mongo
+<powershell>
+# Basic Windows configuration
+Write-Host "Configuring Windows instance..."
 
-# Define the path to the sshd_config file
-sshd_config="/etc/ssh/sshd_config"
+# Enable RDP
+Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-# Define the string to be replaced
-old_string="PasswordAuthentication no"
-new_string="PasswordAuthentication yes"
+# Set timezone
+Set-TimeZone -Id "Eastern Standard Time"
 
-# Check if the file exists
-if [ -e "$sshd_config" ]; then
-    # Use sed to replace the old string with the new string
-    sudo sed -i "s/$old_string/$new_string/" "$sshd_config"
-
-    # Check if the sed command was successful
-    if [ $? -eq 0 ]; then
-        echo "String replaced successfully."
-        # Restart the SSH service to apply the changes
-        sudo service ssh restart
-    else
-        echo "Error replacing string in $sshd_config."
-    fi
-else
-    echo "File $sshd_config not found."
-fi
-echo "Letmein2021" | passwd --stdin ec2-user
-systemctl restart sshd
+Write-Host "Windows configuration completed."
+</powershell>
 EOF
 
   tags = {
-    Name = "dev-instance-linux2-terraform-slave"
+    Name = "dev-instance-windows-terraform-slave"
   }
 }
 
