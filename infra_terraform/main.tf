@@ -14,7 +14,6 @@ provider "aws" {
 resource "aws_instance" "dev-instance-windows-master" {
   ami                         = "ami-0f73246b6299f4858"
   instance_type               = "t3.large"
-  key_name                    = "ambience-developer-cloud"
   availability_zone           = "us-east-1a"
   tenancy                     = "default"
   subnet_id                   = aws_subnet.terraform-public-subnet-master.id # Public Subnet A
@@ -54,7 +53,6 @@ EOF
 resource "aws_instance" "dev-instance-windows-slave" {
   ami                         = "ami-0f73246b6299f4858"
   instance_type               = "t3.large"
-  key_name                    = "ambience-developer-cloud"
   availability_zone           = "us-east-1b"
   tenancy                     = "default"
   subnet_id                   = aws_subnet.terraform-private-subnet-slave.id # Private Subnet - simulating on-premise
