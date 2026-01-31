@@ -98,7 +98,7 @@ jobs:
       - name: Terraform Destroy on Failure
         if: failure()
         run: |
-          terraform destroy -auto-approve -input=false
+          # terraform destroy -auto-approve -input=false
           echo "Check if learn-tf-aws-vpc-ssm-role exists"
           if [ -n "$(aws iam list-roles --query 'Roles[*].RoleName' | grep learn-tf-aws-vpc-ssm-role | sed 's/[",]//g')" ]; then
               ROLE_NAME="learn-tf-aws-vpc-ssm-role"
