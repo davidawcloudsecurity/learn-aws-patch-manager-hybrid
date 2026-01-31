@@ -425,8 +425,8 @@ resource "aws_security_group" "terraform-db-sg-onpremise" {
   name   = "private-facing-db-sg-onpremise"
 
   ingress {
-    from_port   = -1
-    to_port     = -1
+    from_port   = 0
+    to_port     = 0
     protocol    = "-1"
     cidr_blocks = [aws_vpc.terraform-default-vpc-aws.cidr_block]
     description = "Allow all traffic from aws VPC"
