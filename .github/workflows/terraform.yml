@@ -55,7 +55,7 @@ jobs:
           terraform validate
           terraform plan
           echo "Checking existing resources..."
-          if aws iam get-role --role-name learn-tf-aws-vpc-ssm-role >/dev/null 2>&1; then
+          if aws iam get-role --role-name SSMRoleForEC2 >/dev/null 2>&1; then
               echo "Role exists - will use existing"
               terraform apply --auto-approve
           else
@@ -100,8 +100,8 @@ jobs:
         run: |
           # terraform destroy -auto-approve -input=false
           echo "Check if learn-tf-aws-vpc-ssm-role exists"
-          if [ -n "$(aws iam list-roles --query 'Roles[*].RoleName' | grep learn-tf-aws-vpc-ssm-role | sed 's/[",]//g')" ]; then
-              ROLE_NAME="learn-tf-aws-vpc-ssm-role"
+          if [ -n "$(aws iam list-roles --query 'Roles[*].RoleName' | grep SSMRoleForEC2 | sed 's/[",]//g')" ]; then
+              ROLE_NAME="SSMRoleForEC2"
               INSTANCE_PROFILE_NAME="learn-tf-aws-vpc-ssm-profile"
               
               echo "Removing role from instance profile first..."
