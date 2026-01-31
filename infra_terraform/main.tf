@@ -20,6 +20,7 @@ resource "aws_instance" "dev-instance-windows-master" {
   subnet_id                   = aws_subnet.terraform-public-subnet-master.id # Public Subnet A
   ebs_optimized               = false
   associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.ssm_instance_profile.name
   vpc_security_group_ids = [
     aws_security_group.terraform-public-facing-db-sg-master.id # public-facing-security-group
   ]
@@ -72,7 +73,12 @@ resource "aws_instance" "dev-instance-windows-slave" {
 # Basic Windows configuration for on-premise simulation
 Write-Host "Configuring Windows instance as on-premise simulation..."
 
-# Enable RDP (though not accessible without bastion/VPN in real scenario)
+# Create local user ec2-user with password
+$Password = ConvertTo-SecureString "Letmein2021" -AsPlainText -Force
+New-LocalUser "ec2-user" -Password $Password -FullName "EC2 User" -Description "Local user for on-premise simulation"
+Add-LocalGroupMember -Group "Administrators" -Member "ec2-user"
+
+# Enable RDP
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
 Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
@@ -80,6 +86,7 @@ Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 Set-TimeZone -Id "Eastern Standard Time"
 
 Write-Host "On-premise simulation configuration completed."
+Write-Host "User: ec2-user | Password: Letmein2021"
 Write-Host "This instance has no direct internet access - use SSM hybrid activation for management"
 </powershell>
 EOF
@@ -111,12 +118,12 @@ resource "aws_vpc" "terraform-default-vpc-master" {
 }
 
 resource "aws_vpc" "terraform-default-vpc-slave" {
-  cidr_block           = "10.2.0.0/16"
+  cidr_block           = "172.16.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
 
   tags = {
-    Name = "learn-terraform-vpc-slave"
+    Name = "learn-terraform-vpc-slave-onpremise"
   }
 }
 
@@ -144,7 +151,7 @@ resource "aws_subnet" "terraform-private-subnet-master" {
 # How to create public / private subnet
 resource "aws_subnet" "terraform-public-subnet-slave" {
   vpc_id            = aws_vpc.terraform-default-vpc-slave.id
-  cidr_block        = "10.2.1.0/24"
+  cidr_block        = "172.16.1.0/24"
   availability_zone = "us-east-1b"
 
   tags = {
@@ -154,11 +161,11 @@ resource "aws_subnet" "terraform-public-subnet-slave" {
 
 resource "aws_subnet" "terraform-private-subnet-slave" {
   vpc_id            = aws_vpc.terraform-default-vpc-slave.id
-  cidr_block        = "10.2.2.0/24"
+  cidr_block        = "172.16.2.0/24"
   availability_zone = "us-east-1b"
 
   tags = {
-    Name = "terrform-private-subnet-slave-B"
+    Name = "terrform-private-subnet-slave-B-onpremise"
   }
 }
 
@@ -222,14 +229,16 @@ resource "aws_route" "route-vpc-peering-master" {
 resource "aws_route_table" "terraform-private-route-table-slave" {
   vpc_id = aws_vpc.terraform-default-vpc-slave.id
 
-  # Comment this out to cut cost and focus on igw only
-/*  route {
+  # Route all traffic through VPC peering (simulating on-premise to AWS connection)
+  # Note: This won't provide internet access due to VPC peering non-transitive nature
+  # This simulates a Direct Connect or VPN connection from on-premise to AWS
+  route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_nat_gateway.terraform-ngw.id
+    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id
   }
-*/  
+  
   tags = {
-    Name = "terraform-private-route-table-slave"
+    Name = "terraform-private-route-table-slave-onpremise"
   }
 }
 
@@ -349,17 +358,25 @@ resource "aws_security_group" "terraform-public-facing-db-sg-slave" {
   }
 }
 
-# Create private security group
+# Create private security group for slave - allow RDP from master VPC
 resource "aws_security_group" "terraform-db-sg-slave" {
   vpc_id = aws_vpc.terraform-default-vpc-slave.id
   name   = "private-facing-db-sg-slave"
 
   ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-    # Allow traffic from private subnets
+    from_port   = 3389
+    to_port     = 3389
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.terraform-default-vpc-master.cidr_block]
+    description = "Allow RDP from master VPC"
+  }
+
+  ingress {
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = [aws_vpc.terraform-default-vpc-master.cidr_block]
+    description = "Allow ICMP from master VPC"
   }
 
   egress {
@@ -391,3 +408,41 @@ resource "aws_nat_gateway" "terraform-ngw" {
       }
 }
 */
+
+# IAM Role for SSM
+resource "aws_iam_role" "ssm_role" {
+  name = "SSMRoleForEC2"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name = "SSM-Role-For-EC2"
+  }
+}
+
+# Attach AWS managed policy for SSM
+resource "aws_iam_role_policy_attachment" "ssm_policy" {
+  role       = aws_iam_role.ssm_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+# Create instance profile
+resource "aws_iam_instance_profile" "ssm_instance_profile" {
+  name = "SSMInstanceProfile"
+  role = aws_iam_role.ssm_role.name
+
+  tags = {
+    Name = "SSM-Instance-Profile"
+  }
+}
