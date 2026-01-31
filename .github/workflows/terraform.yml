@@ -49,7 +49,7 @@ jobs:
               fi
               git checkout main
           fi
-          
+          ls -lah
           terraform init
           terraform fmt
           terraform validate
