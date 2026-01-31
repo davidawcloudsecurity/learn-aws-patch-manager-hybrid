@@ -287,11 +287,27 @@ resource "aws_security_group" "terraform-public-facing-db-sg-master" {
   name   = "public-facing-db-sg-master"
 
   ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-    # Allow traffic from public subnet
+    from_port   = 3389
+    to_port     = 3389
+    protocol    = "tcp"
+    cidr_blocks = [aws_subnet.terraform-public-subnet-master.cidr_block]
+    description = "Allow RDP from master public subnet"
+  }
+
+  ingress {
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = [aws_subnet.terraform-public-subnet-master.cidr_block]
+    description = "Allow ICMP from master public subnet"
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.terraform-default-vpc-slave.cidr_block]
+    description = "Allow HTTPS from slave VPC for SSM"
   }
 
   egress {
