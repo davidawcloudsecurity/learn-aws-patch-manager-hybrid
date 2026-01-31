@@ -425,8 +425,8 @@ resource "aws_security_group" "terraform-db-sg-onpremise" {
   name   = "private-facing-db-sg-onpremise"
 
   ingress {
-    from_port   = 0
-    to_port     = 0
+    from_port   = -1
+    to_port     = -1
     protocol    = "-1"
     cidr_blocks = [aws_vpc.terraform-default-vpc-aws.cidr_block]
     description = "Allow all traffic from aws VPC"
@@ -578,5 +578,48 @@ resource "aws_vpc_endpoint" "s3" {
 
   tags = {
     Name = "s3-interface-endpoint"
+  }
+}
+
+# Route 53 Private Hosted Zone for S3 DNS resolution
+resource "aws_route53_zone" "s3_private" {
+  name = "s3.us-east-1.amazonaws.com"
+
+  vpc {
+    vpc_id = aws_vpc.terraform-default-vpc-aws.id
+  }
+
+  vpc {
+    vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
+  }
+
+  tags = {
+    Name = "s3-private-hosted-zone"
+  }
+}
+
+# Wildcard record pointing to S3 Interface Endpoint
+resource "aws_route53_record" "s3_wildcard" {
+  zone_id = aws_route53_zone.s3_private.zone_id
+  name    = "*.s3.us-east-1.amazonaws.com"
+  type    = "A"
+
+  alias {
+    name                   = aws_vpc_endpoint.s3.dns_entry[0].dns_name
+    zone_id                = aws_vpc_endpoint.s3.dns_entry[0].hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+# Root record for regional endpoint
+resource "aws_route53_record" "s3_root" {
+  zone_id = aws_route53_zone.s3_private.zone_id
+  name    = "s3.us-east-1.amazonaws.com"
+  type    = "A"
+
+  alias {
+    name                   = aws_vpc_endpoint.s3.dns_entry[0].dns_name
+    zone_id                = aws_vpc_endpoint.s3.dns_entry[0].hosted_zone_id
+    evaluate_target_health = false
   }
 }
