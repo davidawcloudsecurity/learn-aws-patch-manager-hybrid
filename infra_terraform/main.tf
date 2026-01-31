@@ -49,18 +49,18 @@ EOF
   }
 }
 
-# Create instance in one of the subnet
+# Create instance in private subnet to simulate on-premise server
 resource "aws_instance" "dev-instance-windows-slave" {
   ami                         = "ami-0f73246b6299f4858"
   instance_type               = "t3.large"
   key_name                    = "ambience-developer-cloud"
   availability_zone           = "us-east-1b"
   tenancy                     = "default"
-  subnet_id                   = aws_subnet.terraform-public-subnet-slave.id # Public Subnet A
+  subnet_id                   = aws_subnet.terraform-private-subnet-slave.id # Private Subnet - simulating on-premise
   ebs_optimized               = false
-  associate_public_ip_address = true
+  associate_public_ip_address = false # No public IP - simulating on-premise
   vpc_security_group_ids = [
-    aws_security_group.terraform-public-facing-db-sg-slave.id # public-facing-security-group
+    aws_security_group.terraform-db-sg-slave.id # private-facing-security-group
   ]
   source_dest_check = true
   root_block_device {
@@ -69,22 +69,23 @@ resource "aws_instance" "dev-instance-windows-slave" {
   }
   user_data = <<EOF
 <powershell>
-# Basic Windows configuration
-Write-Host "Configuring Windows instance..."
+# Basic Windows configuration for on-premise simulation
+Write-Host "Configuring Windows instance as on-premise simulation..."
 
-# Enable RDP
+# Enable RDP (though not accessible without bastion/VPN in real scenario)
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
 Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
 # Set timezone
 Set-TimeZone -Id "Eastern Standard Time"
 
-Write-Host "Windows configuration completed."
+Write-Host "On-premise simulation configuration completed."
+Write-Host "This instance has no direct internet access - use SSM hybrid activation for management"
 </powershell>
 EOF
 
   tags = {
-    Name = "dev-instance-windows-terraform-slave"
+    Name = "dev-instance-windows-terraform-slave-onpremise"
   }
 }
 
@@ -198,9 +199,9 @@ resource "aws_route_table" "terraform-public-route-table-slave" {
   vpc_id = aws_vpc.terraform-default-vpc-slave.id
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.terraform-default-igw-slave.id
+    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id 
   }
-    route {
+  route {
     cidr_block = aws_vpc.terraform-default-vpc-master.cidr_block
     vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id 
   }
