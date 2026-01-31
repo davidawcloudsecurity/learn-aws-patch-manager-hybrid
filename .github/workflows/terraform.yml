@@ -54,14 +54,21 @@ jobs:
           terraform fmt
           terraform validate
           terraform plan
+          terraform apply --auto-approve
           echo "Checking existing resources..."
           if aws iam get-role --role-name SSMRoleForEC2 >/dev/null 2>&1; then
-              echo "Role exists - will use existing"
+              ROLE_NAME="SSMRoleForEC2"
+              INSTANCE_PROFILE_NAME="SSMInstanceProfile"
+              
+              echo "Removing role from instance profile first..."
+              # Remove role from instance profile
+              aws iam remove-role-from-instance-profile --instance-profile-name "$INSTANCE_PROFILE_NAME" --role-name "$ROLE_NAME" 2>/dev/null || echo "Role not in instance profile or doesn't exist"
               terraform apply --auto-approve
           else
               echo "Role doesn't exist - will create new"
               terraform apply --auto-approve
           fi
+              terraform apply --auto-approve          
         working-directory: infra_terraform
 
       - name: Git Config
@@ -102,7 +109,7 @@ jobs:
           echo "Check if learn-tf-aws-vpc-ssm-role exists"
           if [ -n "$(aws iam list-roles --query 'Roles[*].RoleName' | grep SSMRoleForEC2 | sed 's/[",]//g')" ]; then
               ROLE_NAME="SSMRoleForEC2"
-              INSTANCE_PROFILE_NAME="learn-tf-aws-vpc-ssm-profile"
+              INSTANCE_PROFILE_NAME="SSMInstanceProfile"
               
               echo "Removing role from instance profile first..."
               # Remove role from instance profile
