@@ -40,6 +40,10 @@ Add-LocalGroupMember -Group "Administrators" -Member "ec2-user"
 # Add ec2-user to Remote Management Users group
 Add-LocalGroupMember -Group "Remote Management Users" -Member "ec2-user"
 
+# Enable RDP
+Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
 # Set timezone
 Set-TimeZone -Id "Singapore Standard Time"
 
@@ -80,6 +84,10 @@ $Password = ConvertTo-SecureString "Letmein2021" -AsPlainText -Force
 New-LocalUser "ec2-user" -Password $Password -FullName "EC2 User" -Description "Local user for on-premise simulation"
 Add-LocalGroupMember -Group "Administrators" -Member "ec2-user"
 Add-LocalGroupMember -Group "Remote Management Users" -Member "ec2-user"
+
+# Enable RDP
+Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
 # Set timezone
 Set-TimeZone -Id "Singapore Standard Time"
@@ -240,11 +248,6 @@ resource "aws_route_table" "terraform-public-route-table-onpremise" {
   vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
   
   route {
-    cidr_block         = "0.0.0.0/0"
-    transit_gateway_id = aws_ec2_transit_gateway.main.id
-  }
-  
-  route {
     cidr_block         = aws_vpc.terraform-default-vpc-aws.cidr_block
     transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
@@ -262,10 +265,9 @@ resource "aws_route_table" "terraform-public-route-table-onpremise" {
 resource "aws_route_table" "terraform-private-route-table-onpremise" {
   vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
 
-  # Route all traffic through Transit Gateway (simulating on-premise to AWS connection)
-  # This simulates a Direct Connect or VPN connection from on-premise to AWS
+  # Route to AWS VPC through Transit Gateway
   route {
-    cidr_block         = "0.0.0.0/0"
+    cidr_block         = aws_vpc.terraform-default-vpc-aws.cidr_block
     transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
   
@@ -504,5 +506,145 @@ resource "aws_vpc_endpoint" "s3_onpremise" {
 
   tags = {
     Name = "s3-endpoint-onpremise"
+  }
+}
+
+# SSM VPC Endpoints in AWS VPC (shared via TGW)
+resource "aws_security_group" "vpc_endpoint_sg" {
+  vpc_id = aws_vpc.terraform-default-vpc-aws.id
+  name   = "vpc-endpoint-sg"
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [
+      aws_vpc.terraform-default-vpc-aws.cidr_block,
+      aws_vpc.terraform-default-vpc-onpremise.cidr_block
+    ]
+    description = "Allow HTTPS from both VPCs"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "vpc-endpoint-sg"
+  }
+}
+
+resource "aws_vpc_endpoint" "ssm" {
+  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
+  service_name        = "com.amazonaws.us-east-1.ssm"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
+  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "ssm-endpoint"
+  }
+}
+
+resource "aws_vpc_endpoint" "ssmmessages" {
+  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
+  service_name        = "com.amazonaws.us-east-1.ssmmessages"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
+  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "ssmmessages-endpoint"
+  }
+}
+
+resource "aws_vpc_endpoint" "ec2messages" {
+  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
+  service_name        = "com.amazonaws.us-east-1.ec2messages"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
+  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "ec2messages-endpoint"
+  }
+}
+
+# Route 53 Private Hosted Zones to make SSM endpoints accessible from on-premise
+resource "aws_route53_zone" "ssm_private" {
+  name = "ssm.us-east-1.amazonaws.com"
+
+  vpc {
+    vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
+  }
+
+  tags = {
+    Name = "ssm-private-hosted-zone"
+  }
+}
+
+resource "aws_route53_record" "ssm" {
+  zone_id = aws_route53_zone.ssm_private.zone_id
+  name    = "ssm.us-east-1.amazonaws.com"
+  type    = "A"
+
+  alias {
+    name                   = aws_vpc_endpoint.ssm.dns_entry[0].dns_name
+    zone_id                = aws_vpc_endpoint.ssm.dns_entry[0].hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_zone" "ssmmessages_private" {
+  name = "ssmmessages.us-east-1.amazonaws.com"
+
+  vpc {
+    vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
+  }
+
+  tags = {
+    Name = "ssmmessages-private-hosted-zone"
+  }
+}
+
+resource "aws_route53_record" "ssmmessages" {
+  zone_id = aws_route53_zone.ssmmessages_private.zone_id
+  name    = "ssmmessages.us-east-1.amazonaws.com"
+  type    = "A"
+
+  alias {
+    name                   = aws_vpc_endpoint.ssmmessages.dns_entry[0].dns_name
+    zone_id                = aws_vpc_endpoint.ssmmessages.dns_entry[0].hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_zone" "ec2messages_private" {
+  name = "ec2messages.us-east-1.amazonaws.com"
+
+  vpc {
+    vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
+  }
+
+  tags = {
+    Name = "ec2messages-private-hosted-zone"
+  }
+}
+
+resource "aws_route53_record" "ec2messages" {
+  zone_id = aws_route53_zone.ec2messages_private.zone_id
+  name    = "ec2messages.us-east-1.amazonaws.com"
+  type    = "A"
+
+  alias {
+    name                   = aws_vpc_endpoint.ec2messages.dns_entry[0].dns_name
+    zone_id                = aws_vpc_endpoint.ec2messages.dns_entry[0].hosted_zone_id
+    evaluate_target_health = false
   }
 }
