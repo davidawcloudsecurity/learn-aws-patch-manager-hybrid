@@ -13,7 +13,7 @@ provider "aws" {
 # Create instance in one of the subnet
 resource "aws_instance" "dev-instance-windows-master" {
   ami                         = "ami-0f73246b6299f4858"
-  instance_type               = "t2.micro"
+  instance_type               = "t3.large"
   key_name                    = "ambience-developer-cloud"
   availability_zone           = "us-east-1a"
   tenancy                     = "default"
@@ -52,7 +52,7 @@ EOF
 # Create instance in one of the subnet
 resource "aws_instance" "dev-instance-windows-slave" {
   ami                         = "ami-0f73246b6299f4858"
-  instance_type               = "t2.micro"
+  instance_type               = "t3.large"
   key_name                    = "ambience-developer-cloud"
   availability_zone           = "us-east-1b"
   tenancy                     = "default"
