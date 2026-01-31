@@ -1,31 +1,28 @@
 # This is a basic workflow to help you get started with Actions
-name: learn-aws-patch-manager
+name: learn-aws-patch-manager-destroy
 
-# Controls when the action will run. Invokes the workflow on push events but only for the main branch
 on:
   workflow_dispatch:
 
 env:
-  
-  AWS_REGION : "us-east-1" #Change to reflect your Region  
+  AWS_REGION : "us-east-1" #Change to reflect your Region
 
 # Permission can be added at job level or workflow level    
 permissions:
       id-token: write   # This is required for requesting the JWT
       contents: write    # This is required for actions/checkout
 jobs:
-  AssumeRoleAndCallIdentity:
+  Destroy:
     runs-on: ubuntu-latest
     steps:
       - name: Git clone the repository
-        uses: actions/checkout@v3  
+        uses: actions/checkout@v3
       - name: configure aws credentials
         uses: aws-actions/configure-aws-credentials@v1.7.0
         with:
           role-to-assume: arn:aws:iam::762595429056:role/GithubActions #change to reflect your IAM role’s ARN
           role-session-name: GitHub_to_AWS_via_FederatedOIDC
           aws-region: ${{ env.AWS_REGION }}
-
       # Hello from AWS: WhoAmI
       - name: Sts GetCallerIdentity
         run: |
@@ -34,105 +31,54 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v1
         
-      # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
-      - name: Terraform Init
+      - name: Initialize, validate, format Terraform
         run: |
-          # Pull existing state from destroy/main branch if it exists
-          echo "Checking for existing Terraform state..."
-          git fetch origin destroy/main 2>/dev/null || echo "destroy/main branch doesn't exist yet"
-          if git show-branch remotes/origin/destroy/main 2>/dev/null; then
-              echo "Found destroy/main branch, checking for state files..."
-              git checkout destroy/main
-              if [ -d "state" ] && [ -f "state/terraform.tfstate" ]; then
-                  echo "Found existing state, copying to working directory..."
-                  cp state/terraform.tfstate ./terraform.tfstate
-              fi
-              git checkout main
-          fi
-          
+          ls -lah
+          pwd
+          ls -lah state
+          mv state/terraform.tfstate ./terraform.tfstate
+          ls -lah
+          echo "Terraform init"
+          echo ""
           terraform init
-          terraform fmt
           terraform validate
-          terraform plan
-          echo "Checking existing resources..."
-          if aws iam get-role --role-name learn-tf-aws-vpc-ssm-role >/dev/null 2>&1; then
-              echo "Role exists - will use existing"
-              terraform apply --auto-approve -var="use_existing_iam=true"
-          else
-              echo "Role doesn't exist - will create new"
-              terraform apply --auto-approve -var="use_existing_iam=false"
-          fi
+          terraform fmt
+        working-directory: infra_terraform        
+      
+      - name: Terraform Plan
+        run: terraform plan
         working-directory: infra_terraform
 
-      - name: Git Config
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/davidawcloudsecurity/learn-aws-patch-manager-hybrid.git                   
-          # Get the latest commit hash
-          COMMIT_HASH=$(git rev-parse --short HEAD)          
-          
-          # Fetch the latest changes from the remote 'destroy/main' branch
-          git status
-          echo "git fetch"
-          git fetch origin destroy/main
-          git add main.tf
-          git commit -m "random-${COMMIT_HASH}" --allow-empty
-          cp main.tf main.tf.origin
-          git stash
-          echo "git checkout"
-          git checkout destroy/main
-          echo "git merge"
-          git merge origin/destroy/main
-          mv main.tf.origin main.tf
-          if [ -f terraform.tfstate ]; then
-            mv terraform.tfstate state/
-            git add state
-          fi
-          git add main.tf
-          git commit -m "random-${COMMIT_HASH}" --allow-empty
-          # Push the changes to the 'destroy/main' branch
-          git push origin destroy/main
+      - name: Terraform State
+        run: terraform state list
         working-directory: infra_terraform
-
-      - name: Terraform Destroy on Failure
-        if: failure()
+      
+      - name: Terraform Destroy Targeted Resources
         run: |
           terraform destroy -auto-approve -input=false
-          echo "Check if learn-tf-aws-vpc-ssm-role exists"
-          if [ -n "$(aws iam list-roles --query 'Roles[*].RoleName' | grep learn-tf-aws-vpc-ssm-role | sed 's/[",]//g')" ]; then
-              ROLE_NAME="learn-tf-aws-vpc-ssm-role"
-              INSTANCE_PROFILE_NAME="learn-tf-aws-vpc-ssm-profile"
-              
-              echo "Removing role from instance profile first..."
-              # Remove role from instance profile
-              aws iam remove-role-from-instance-profile --instance-profile-name "$INSTANCE_PROFILE_NAME" --role-name "$ROLE_NAME" 2>/dev/null || echo "Role not in instance profile or doesn't exist"
-              
-              echo "Deleting instance profile: $INSTANCE_PROFILE_NAME"
-              aws iam delete-instance-profile --instance-profile-name "$INSTANCE_PROFILE_NAME" 2>/dev/null || echo "Instance profile doesn't exist"
-              
-              echo "Detaching managed policies from role: $ROLE_NAME"
-              # Detach AWS managed policies
-              aws iam detach-role-policy --role-name "$ROLE_NAME" --policy-arn "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore" 2>/dev/null || echo "Policy already detached or doesn't exist"
-              
-              echo "Detaching inline policies from role: $ROLE_NAME"
-              # List and delete inline policies
-              INLINE_POLICIES=$(aws iam list-role-policies --role-name "$ROLE_NAME" --query 'PolicyNames' --output text)
-              for POLICY in $INLINE_POLICIES; do
-                  if [ "$POLICY" != "None" ] && [ -n "$POLICY" ]; then
-                      aws iam delete-role-policy --role-name "$ROLE_NAME" --policy-name "$POLICY"
-                      echo "Deleted inline policy: $POLICY"
-                  fi
-              done
-              
-              echo "Deleting role: $ROLE_NAME"
-              aws iam delete-role --role-name "$ROLE_NAME"
-              echo "Role deleted successfully"
-          else
-              echo "Role learn-tf-aws-vpc-ssm-role does not exist"
+          if [ -n "$(aws iam list-roles --query 'Roles[*].RoleName' | grep AmazonSSMManagedInstanceRole | sed 's/[",]//g')" ]; then
+            aws iam delete-role --role-name "$(aws iam list-roles --query 'Roles[*].RoleName' | grep AmazonSSMManagedInstanceRole | sed 's/[",]//g')"
           fi
-          echo "Check if learn-tf-aws-vpc-ssm-profile exist"
-          if [ -n "$(aws iam list-instance-profiles --query InstanceProfiles[*].InstanceProfileName | grep learn-tf-aws-vpc-ssm-profile | sed 's/[",]//g')" ]; then
-            aws iam delete-instance-profile --instance-profile-name $(aws iam list-instance-profiles --query InstanceProfiles[*].InstanceProfileName | grep learn-tf-aws-vpc-ssm-profile | sed 's/[",]//g')
-          fi
+          if [ -n "$(aws iam list-instance-profiles --query InstanceProfiles[*].InstanceProfileName | grep AmazonSSMManagedInstanceProfile | sed 's/[",]//g')" ]; then
+            aws iam delete-instance-profile --instance-profile-name "$(aws iam list-instance-profiles --query InstanceProfiles[*].InstanceProfileName | grep AmazonSSMManagedInstanceProfile | sed 's/[",]//g')"
+          fi          
         working-directory: infra_terraform
+
+      - name: Clean tfstate and Git
+        run: |
+          echo "" > state/terraform.tfstate
+          mv terraform.tfstate state                    
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/davidawcloudsecurity/learn-aws-patch-manager-hybrid.git                   
+          git fetch origin destroy/main
+          git checkout destroy/main
+          git merge origin/destroy/main
+          # Get the latest commit hash
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          git add state
+          git commit -m "clean-${COMMIT_HASH}"    
+          git push -u origin          
+          pwd
+        working-directory: infra_terraform
+          
