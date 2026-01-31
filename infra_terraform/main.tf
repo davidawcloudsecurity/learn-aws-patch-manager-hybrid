@@ -11,17 +11,17 @@ provider "aws" {
 }
 
 # Create instance in one of the subnet
-resource "aws_instance" "dev-instance-windows-master" {
+resource "aws_instance" "dev-instance-windows-aws" {
   ami                         = "ami-0f73246b6299f4858"
   instance_type               = "t3.large"
   availability_zone           = "us-east-1a"
   tenancy                     = "default"
-  subnet_id                   = aws_subnet.terraform-public-subnet-master.id # Public Subnet A
+  subnet_id                   = aws_subnet.terraform-public-subnet-aws.id # Public Subnet A
   ebs_optimized               = false
   associate_public_ip_address = true
   iam_instance_profile        = aws_iam_instance_profile.ssm_instance_profile.name
   vpc_security_group_ids = [
-    aws_security_group.terraform-public-facing-db-sg-master.id # public-facing-security-group
+    aws_security_group.terraform-public-facing-db-sg-aws.id # public-facing-security-group
   ]
   source_dest_check       = true
   disable_api_termination = false
@@ -46,21 +46,21 @@ Write-Host "Windows configuration completed."
 EOF
 
   tags = {
-    Name = "dev-instance-windows-terraform-master"
+    Name = "dev-instance-windows-terraform-aws"
   }
 }
 
 # Create instance in private subnet to simulate on-premise server
-resource "aws_instance" "dev-instance-windows-slave" {
+resource "aws_instance" "dev-instance-windows-onpremise" {
   ami                         = "ami-0f73246b6299f4858"
   instance_type               = "t3.large"
   availability_zone           = "us-east-1b"
   tenancy                     = "default"
-  subnet_id                   = aws_subnet.terraform-private-subnet-slave.id # Private Subnet - simulating on-premise
+  subnet_id                   = aws_subnet.terraform-private-subnet-onpremise.id # Private Subnet - simulating on-premise
   ebs_optimized               = false
   associate_public_ip_address = false # No public IP - simulating on-premise
   vpc_security_group_ids = [
-    aws_security_group.terraform-db-sg-slave.id # private-facing-security-group
+    aws_security_group.terraform-db-sg-onpremise.id # private-facing-security-group
   ]
   source_dest_check       = true
   disable_api_termination = false
@@ -92,102 +92,102 @@ Write-Host "This instance has no direct internet access - use SSM hybrid activat
 EOF
 
   tags = {
-    Name = "dev-instance-windows-terraform-slave-onpremise"
+    Name = "dev-instance-windows-terraform-onpremise"
   }
 }
 
 # VPC Peering
-resource "aws_vpc_peering_connection" "default-peering-slave" {
+resource "aws_vpc_peering_connection" "default-peering-onpremise" {
   # peer_owner_id = var.peer_owner_id
-  peer_vpc_id = aws_vpc.terraform-default-vpc-master.id
-  vpc_id      = aws_vpc.terraform-default-vpc-slave.id
+  peer_vpc_id = aws_vpc.terraform-default-vpc-aws.id
+  vpc_id      = aws_vpc.terraform-default-vpc-onpremise.id
   auto_accept = true
   tags = {
-    Name = "VPC Peering between master and slave"
+    Name = "VPC Peering between aws and onpremise"
   }
 }
 
-resource "aws_vpc" "terraform-default-vpc-master" {
+resource "aws_vpc" "terraform-default-vpc-aws" {
   cidr_block           = "10.10.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
 
   tags = {
-    Name = "learn-terraform-vpc-master"
+    Name = "learn-terraform-vpc-aws"
   }
 }
 
-resource "aws_vpc" "terraform-default-vpc-slave" {
+resource "aws_vpc" "terraform-default-vpc-onpremise" {
   cidr_block           = "172.16.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
 
   tags = {
-    Name = "learn-terraform-vpc-slave-onpremise"
+    Name = "learn-terraform-vpc-onpremise"
   }
 }
 
 # How to create public / private subnet
-resource "aws_subnet" "terraform-public-subnet-master" {
-  vpc_id            = aws_vpc.terraform-default-vpc-master.id
+resource "aws_subnet" "terraform-public-subnet-aws" {
+  vpc_id            = aws_vpc.terraform-default-vpc-aws.id
   cidr_block        = "10.10.1.0/24"
   availability_zone = "us-east-1a"
 
   tags = {
-    Name = "terraform-public-subnet--master-A"
+    Name = "terraform-public-subnet-aws-A"
   }
 }
 
-resource "aws_subnet" "terraform-private-subnet-master" {
-  vpc_id            = aws_vpc.terraform-default-vpc-master.id
+resource "aws_subnet" "terraform-private-subnet-aws" {
+  vpc_id            = aws_vpc.terraform-default-vpc-aws.id
   cidr_block        = "10.10.2.0/24"
   availability_zone = "us-east-1a"
 
   tags = {
-    Name = "terrform-private-subnet-master-A"
+    Name = "terraform-private-subnet-aws-A"
   }
 }
 
 # How to create public / private subnet
-resource "aws_subnet" "terraform-public-subnet-slave" {
-  vpc_id            = aws_vpc.terraform-default-vpc-slave.id
+resource "aws_subnet" "terraform-public-subnet-onpremise" {
+  vpc_id            = aws_vpc.terraform-default-vpc-onpremise.id
   cidr_block        = "172.16.1.0/24"
   availability_zone = "us-east-1b"
 
   tags = {
-    Name = "terraform-public-subnet-slave-B"
+    Name = "terraform-public-subnet-onpremise-B"
   }
 }
 
-resource "aws_subnet" "terraform-private-subnet-slave" {
-  vpc_id            = aws_vpc.terraform-default-vpc-slave.id
+resource "aws_subnet" "terraform-private-subnet-onpremise" {
+  vpc_id            = aws_vpc.terraform-default-vpc-onpremise.id
   cidr_block        = "172.16.2.0/24"
   availability_zone = "us-east-1b"
 
   tags = {
-    Name = "terrform-private-subnet-slave-B-onpremise"
+    Name = "terraform-private-subnet-onpremise-B"
   }
 }
 
 # How to create custom route table
-resource "aws_route_table" "terraform-public-route-table-master" {
-  vpc_id = aws_vpc.terraform-default-vpc-master.id
+resource "aws_route_table" "terraform-public-route-table-aws" {
+  vpc_id = aws_vpc.terraform-default-vpc-aws.id
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.terraform-default-igw-master.id
+    gateway_id = aws_internet_gateway.terraform-default-igw-aws.id
   }
   route {
-    cidr_block                = aws_vpc.terraform-default-vpc-slave.cidr_block
-    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id
+    cidr_block                = aws_vpc.terraform-default-vpc-onpremise.cidr_block
+    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-onpremise.id
   }
 
   tags = {
-    Name = "terraform-public-route-table-master"
+    Name = "terraform-public-route-table-aws"
   }
 }
 
-resource "aws_route_table" "terraform-private-route-table-master" {
-  vpc_id = aws_vpc.terraform-default-vpc-master.id
+resource "aws_route_table" "terraform-private-route-table-aws" {
+  vpc_id = aws_vpc.terraform-default-vpc-aws.id
 
   # Comment this out to cut cost and focus on igw only
   /*
@@ -197,119 +197,119 @@ resource "aws_route_table" "terraform-private-route-table-master" {
   }
 */
   tags = {
-    Name = "terraform-private-route-table-master"
+    Name = "terraform-private-route-table-aws"
   }
 }
 
 # How to create custom route table
-resource "aws_route_table" "terraform-public-route-table-slave" {
-  vpc_id = aws_vpc.terraform-default-vpc-slave.id
+resource "aws_route_table" "terraform-public-route-table-onpremise" {
+  vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
   route {
     cidr_block                = "0.0.0.0/0"
-    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id
+    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-onpremise.id
   }
   route {
-    cidr_block                = aws_vpc.terraform-default-vpc-master.cidr_block
-    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id
+    cidr_block                = aws_vpc.terraform-default-vpc-aws.cidr_block
+    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-onpremise.id
   }
 
   tags = {
-    Name = "terraform-public-route-table-slave"
+    Name = "terraform-public-route-table-onpremise"
   }
 }
 
 /*
-# This append the vpc peering connection to the master route table
-resource "aws_route" "route-vpc-peering-master" {
-  route_table_id            = aws_route_table.terraform-public-route-table-master.id
-  destination_cidr_block    = aws_vpc.terraform-default-vpc-slave.cidr_block
-  vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id    
+# This append the vpc peering connection to the aws route table
+resource "aws_route" "route-vpc-peering-aws" {
+  route_table_id            = aws_route_table.terraform-public-route-table-aws.id
+  destination_cidr_block    = aws_vpc.terraform-default-vpc-onpremise.cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-onpremise.id    
 }
 */
-resource "aws_route_table" "terraform-private-route-table-slave" {
-  vpc_id = aws_vpc.terraform-default-vpc-slave.id
+resource "aws_route_table" "terraform-private-route-table-onpremise" {
+  vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
 
   # Route all traffic through VPC peering (simulating on-premise to AWS connection)
   # Note: This won't provide internet access due to VPC peering non-transitive nature
   # This simulates a Direct Connect or VPN connection from on-premise to AWS
   route {
     cidr_block                = "0.0.0.0/0"
-    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-slave.id
+    vpc_peering_connection_id = aws_vpc_peering_connection.default-peering-onpremise.id
   }
 
   tags = {
-    Name = "terraform-private-route-table-slave-onpremise"
+    Name = "terraform-private-route-table-onpremise"
   }
 }
 
-# How to create master internet gateway
-resource "aws_internet_gateway" "terraform-default-igw-master" {
-  vpc_id = aws_vpc.terraform-default-vpc-master.id
+# How to create aws internet gateway
+resource "aws_internet_gateway" "terraform-default-igw-aws" {
+  vpc_id = aws_vpc.terraform-default-vpc-aws.id
 
   tags = {
-    Name = "terraform-igw-master"
+    Name = "terraform-igw-aws"
   }
 }
 
 # How to create private internet gateway
-resource "aws_internet_gateway" "terraform-default-igw-slave" {
-  vpc_id = aws_vpc.terraform-default-vpc-slave.id
+resource "aws_internet_gateway" "terraform-default-igw-onpremise" {
+  vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
 
   tags = {
-    Name = "terraform-igw-slave"
+    Name = "terraform-igw-onpremise"
   }
 }
 
 
 # How to associate route table with specific subnet
-resource "aws_route_table_association" "public-subnet-rt-association-master" {
-  subnet_id      = aws_subnet.terraform-public-subnet-master.id
-  route_table_id = aws_route_table.terraform-public-route-table-master.id
+resource "aws_route_table_association" "public-subnet-rt-association-aws" {
+  subnet_id      = aws_subnet.terraform-public-subnet-aws.id
+  route_table_id = aws_route_table.terraform-public-route-table-aws.id
 }
 
-resource "aws_route_table_association" "private-subnet-rt-association-master" {
-  subnet_id      = aws_subnet.terraform-private-subnet-master.id
-  route_table_id = aws_route_table.terraform-private-route-table-master.id
+resource "aws_route_table_association" "private-subnet-rt-association-aws" {
+  subnet_id      = aws_subnet.terraform-private-subnet-aws.id
+  route_table_id = aws_route_table.terraform-private-route-table-aws.id
 }
 
 # How to associate route table with specific subnet
-resource "aws_route_table_association" "public-subnet-rt-association-slave" {
-  subnet_id      = aws_subnet.terraform-public-subnet-slave.id
-  route_table_id = aws_route_table.terraform-public-route-table-slave.id
+resource "aws_route_table_association" "public-subnet-rt-association-onpremise" {
+  subnet_id      = aws_subnet.terraform-public-subnet-onpremise.id
+  route_table_id = aws_route_table.terraform-public-route-table-onpremise.id
 }
 
-resource "aws_route_table_association" "private-subnet-rt-association-slave" {
-  subnet_id      = aws_subnet.terraform-private-subnet-slave.id
-  route_table_id = aws_route_table.terraform-private-route-table-slave.id
+resource "aws_route_table_association" "private-subnet-rt-association-onpremise" {
+  subnet_id      = aws_subnet.terraform-private-subnet-onpremise.id
+  route_table_id = aws_route_table.terraform-private-route-table-onpremise.id
 }
 
 # Create public facing security group
-resource "aws_security_group" "terraform-public-facing-db-sg-master" {
-  vpc_id = aws_vpc.terraform-default-vpc-master.id
-  name   = "public-facing-db-sg-master"
+resource "aws_security_group" "terraform-public-facing-db-sg-aws" {
+  vpc_id = aws_vpc.terraform-default-vpc-aws.id
+  name   = "public-facing-db-sg-aws"
 
   ingress {
     from_port   = 3389
     to_port     = 3389
     protocol    = "tcp"
-    cidr_blocks = [aws_subnet.terraform-public-subnet-master.cidr_block]
-    description = "Allow RDP from master public subnet"
+    cidr_blocks = [aws_subnet.terraform-public-subnet-aws.cidr_block]
+    description = "Allow RDP from aws public subnet"
   }
 
   ingress {
     from_port   = -1
     to_port     = -1
     protocol    = "icmp"
-    cidr_blocks = [aws_subnet.terraform-public-subnet-master.cidr_block]
-    description = "Allow ICMP from master public subnet"
+    cidr_blocks = [aws_subnet.terraform-public-subnet-aws.cidr_block]
+    description = "Allow ICMP from aws public subnet"
   }
 
   ingress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = [aws_vpc.terraform-default-vpc-slave.cidr_block]
-    description = "Allow HTTPS from slave VPC for SSM"
+    cidr_blocks = [aws_vpc.terraform-default-vpc-onpremise.cidr_block]
+    description = "Allow HTTPS from onpremise VPC for SSM"
   }
 
   egress {
@@ -320,14 +320,14 @@ resource "aws_security_group" "terraform-public-facing-db-sg-master" {
   }
 
   tags = {
-    Name = "terraform-public-facing-db-sg-master"
+    Name = "terraform-public-facing-db-sg-aws"
   }
 }
 
 # Create private security group
-resource "aws_security_group" "terraform-db-sg-master" {
-  vpc_id = aws_vpc.terraform-default-vpc-master.id
-  name   = "private-facing-db-sg-master"
+resource "aws_security_group" "terraform-db-sg-aws" {
+  vpc_id = aws_vpc.terraform-default-vpc-aws.id
+  name   = "private-facing-db-sg-aws"
 
   ingress {
     from_port   = 0
@@ -345,14 +345,14 @@ resource "aws_security_group" "terraform-db-sg-master" {
   }
 
   tags = {
-    Name = "terraform-private-facing-db-sg-master"
+    Name = "terraform-private-facing-db-sg-aws"
   }
 }
 
 # Create public facing security group
-resource "aws_security_group" "terraform-public-facing-db-sg-slave" {
-  vpc_id = aws_vpc.terraform-default-vpc-slave.id
-  name   = "public-facing-db-sg-slave"
+resource "aws_security_group" "terraform-public-facing-db-sg-onpremise" {
+  vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
+  name   = "public-facing-db-sg-onpremise"
 
   ingress {
     from_port   = 0
@@ -370,29 +370,29 @@ resource "aws_security_group" "terraform-public-facing-db-sg-slave" {
   }
 
   tags = {
-    Name = "terraform-public-facing-db-sg-slave"
+    Name = "terraform-public-facing-db-sg-onpremise"
   }
 }
 
-# Create private security group for slave - allow RDP from master VPC
-resource "aws_security_group" "terraform-db-sg-slave" {
-  vpc_id = aws_vpc.terraform-default-vpc-slave.id
-  name   = "private-facing-db-sg-slave"
+# Create private security group for onpremise - allow RDP from aws VPC
+resource "aws_security_group" "terraform-db-sg-onpremise" {
+  vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
+  name   = "private-facing-db-sg-onpremise"
 
   ingress {
     from_port   = 3389
     to_port     = 3389
     protocol    = "tcp"
-    cidr_blocks = [aws_vpc.terraform-default-vpc-master.cidr_block]
-    description = "Allow RDP from master VPC"
+    cidr_blocks = [aws_vpc.terraform-default-vpc-aws.cidr_block]
+    description = "Allow RDP from aws VPC"
   }
 
   ingress {
     from_port   = -1
     to_port     = -1
     protocol    = "icmp"
-    cidr_blocks = [aws_vpc.terraform-default-vpc-master.cidr_block]
-    description = "Allow ICMP from master VPC"
+    cidr_blocks = [aws_vpc.terraform-default-vpc-aws.cidr_block]
+    description = "Allow ICMP from aws VPC"
   }
 
   egress {
@@ -403,7 +403,7 @@ resource "aws_security_group" "terraform-db-sg-slave" {
   }
 
   tags = {
-    Name = "terraform-private-facing-db-sg-slave"
+    Name = "terraform-private-facing-db-sg-onpremise"
   }
 }
 
