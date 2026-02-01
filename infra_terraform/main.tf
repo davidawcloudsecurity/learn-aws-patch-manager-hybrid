@@ -279,11 +279,6 @@ resource "aws_route_table" "terraform-public-route-table-onpremise" {
     transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
 
-  route {
-    cidr_block         = aws_vpc.terraform-default-vpc-aws.cidr_block
-    transit_gateway_id = aws_ec2_transit_gateway.main.id
-  }
-
   depends_on = [
     aws_ec2_transit_gateway_vpc_attachment.aws_vpc,
     aws_ec2_transit_gateway_vpc_attachment.onpremise_vpc
@@ -298,14 +293,9 @@ resource "aws_route_table" "terraform-private-route-table-onpremise" {
   vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
 
   # Default route to internet via TGW -> AWS VPC NAT Gateway
+  # This covers both internet access and AWS VPC communication
   route {
     cidr_block         = "0.0.0.0/0"
-    transit_gateway_id = aws_ec2_transit_gateway.main.id
-  }
-
-  # Route to AWS VPC through Transit Gateway
-  route {
-    cidr_block         = aws_vpc.terraform-default-vpc-aws.cidr_block
     transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
 
