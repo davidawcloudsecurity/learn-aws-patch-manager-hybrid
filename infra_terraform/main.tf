@@ -93,8 +93,9 @@ Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 Set-TimeZone -Id "Singapore Standard Time"
 
 Write-Host "On-premise simulation configuration completed."
-Write-Host "User: ec2-user | Password: Letmein2021"
 Write-Host "This instance has no direct internet access - use SSM hybrid activation for management"
+Stop-Service AmazonSSMAgent -Force
+Remove-Service AmazonSSMAgent
 </powershell>
 EOF
 
