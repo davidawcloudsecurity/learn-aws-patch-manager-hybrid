@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 3.0"
+      version = "~> 5.0"
     }
   }
 }
@@ -113,6 +113,27 @@ resource "aws_ec2_transit_gateway" "main" {
   tags = {
     Name = "tgw-aws-onpremise"
   }
+}
+
+# Get TGW default route table ID
+data "aws_ec2_transit_gateway_route_table" "default" {
+  filter {
+    name   = "transit-gateway-id"
+    values = [aws_ec2_transit_gateway.main.id]
+  }
+  filter {
+    name   = "default-association-route-table"
+    values = ["true"]
+  }
+  
+  depends_on = [aws_ec2_transit_gateway.main]
+}
+
+# Route internet traffic (0.0.0.0/0) from on-premise to AWS VPC NAT Gateway
+resource "aws_ec2_transit_gateway_route" "onpremise_to_internet" {
+  destination_cidr_block         = "0.0.0.0/0"
+  transit_gateway_attachment_id  = aws_ec2_transit_gateway_vpc_attachment.aws_vpc.id
+  transit_gateway_route_table_id = data.aws_ec2_transit_gateway_route_table.default.id
 }
 
 # TGW Attachment for AWS VPC
@@ -229,6 +250,11 @@ resource "aws_route_table" "terraform-private-route-table-aws" {
   vpc_id = aws_vpc.terraform-default-vpc-aws.id
 
   route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.terraform-ngw-aws.id
+  }
+
+  route {
     cidr_block         = aws_vpc.terraform-default-vpc-onpremise.cidr_block
     transit_gateway_id = aws_ec2_transit_gateway.main.id
   }
@@ -247,6 +273,12 @@ resource "aws_route_table" "terraform-private-route-table-aws" {
 resource "aws_route_table" "terraform-public-route-table-onpremise" {
   vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
   
+  # Default route to internet via TGW -> AWS VPC NAT Gateway
+  route {
+    cidr_block         = "0.0.0.0/0"
+    transit_gateway_id = aws_ec2_transit_gateway.main.id
+  }
+  
   route {
     cidr_block         = aws_vpc.terraform-default-vpc-aws.cidr_block
     transit_gateway_id = aws_ec2_transit_gateway.main.id
@@ -264,6 +296,12 @@ resource "aws_route_table" "terraform-public-route-table-onpremise" {
 
 resource "aws_route_table" "terraform-private-route-table-onpremise" {
   vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
+
+  # Default route to internet via TGW -> AWS VPC NAT Gateway
+  route {
+    cidr_block         = "0.0.0.0/0"
+    transit_gateway_id = aws_ec2_transit_gateway.main.id
+  }
 
   # Route to AWS VPC through Transit Gateway
   route {
@@ -289,16 +327,6 @@ resource "aws_internet_gateway" "terraform-default-igw-aws" {
     Name = "terraform-igw-aws"
   }
 }
-
-# How to create private internet gateway
-resource "aws_internet_gateway" "terraform-default-igw-onpremise" {
-  vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
-
-  tags = {
-    Name = "terraform-igw-onpremise"
-  }
-}
-
 
 # How to associate route table with specific subnet
 resource "aws_route_table_association" "public-subnet-rt-association-aws" {
@@ -438,23 +466,23 @@ resource "aws_security_group" "terraform-db-sg-onpremise" {
   }
 }
 
-# Comment this out to cut cost and focus on igw only
-/*
+# NAT Gateway for AWS VPC - shared with on-premise via TGW
 resource "aws_eip" "terraform-nat-eip" {
-  vpc = true
-   tags = {
-      Name = "terraform-nat-eip"
-      }
+  domain = "vpc"
+  tags = {
+    Name = "terraform-nat-eip-aws"
+  }
 }
 
-resource "aws_nat_gateway" "terraform-ngw" {
+resource "aws_nat_gateway" "terraform-ngw-aws" {
   allocation_id = aws_eip.terraform-nat-eip.id
-  subnet_id     = aws_subnet.terraform-public-subnet.id
+  subnet_id     = aws_subnet.terraform-public-subnet-aws.id
   tags = {
-      Name = "terraform-nat-gateway"
-      }
+    Name = "terraform-nat-gateway-aws"
+  }
+  
+  depends_on = [aws_internet_gateway.terraform-default-igw-aws]
 }
-*/
 
 # IAM Role for SSM
 resource "aws_iam_role" "ssm_role" {
@@ -494,157 +522,33 @@ resource "aws_iam_instance_profile" "ssm_instance_profile" {
   }
 }
 
-# S3 Gateway Endpoint for On-Premise VPC (free!)
-resource "aws_vpc_endpoint" "s3_onpremise" {
-  vpc_id            = aws_vpc.terraform-default-vpc-onpremise.id
-  service_name      = "com.amazonaws.us-east-1.s3"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids   = [
-    aws_route_table.terraform-private-route-table-onpremise.id,
-    aws_route_table.terraform-public-route-table-onpremise.id
-  ]
-
-  tags = {
-    Name = "s3-endpoint-onpremise"
-  }
+# Outputs
+output "nat_gateway_public_ip" {
+  description = "Public IP of NAT Gateway used by on-premise VPC"
+  value       = aws_eip.terraform-nat-eip.public_ip
 }
 
-# SSM VPC Endpoints in AWS VPC (shared via TGW)
-resource "aws_security_group" "vpc_endpoint_sg" {
-  vpc_id = aws_vpc.terraform-default-vpc-aws.id
-  name   = "vpc-endpoint-sg"
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [
-      aws_vpc.terraform-default-vpc-aws.cidr_block,
-      aws_vpc.terraform-default-vpc-onpremise.cidr_block
-    ]
-    description = "Allow HTTPS from both VPCs"
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "vpc-endpoint-sg"
-  }
+output "aws_instance_public_ip" {
+  description = "Public IP of AWS Windows instance"
+  value       = aws_instance.dev-instance-windows-aws.public_ip
 }
 
-resource "aws_vpc_endpoint" "ssm" {
-  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
-  service_name        = "com.amazonaws.us-east-1.ssm"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
-  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "ssm-endpoint"
-  }
+output "aws_instance_id" {
+  description = "Instance ID of AWS Windows instance"
+  value       = aws_instance.dev-instance-windows-aws.id
 }
 
-resource "aws_vpc_endpoint" "ssmmessages" {
-  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
-  service_name        = "com.amazonaws.us-east-1.ssmmessages"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
-  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "ssmmessages-endpoint"
-  }
+output "onpremise_instance_private_ip" {
+  description = "Private IP of on-premise Windows instance"
+  value       = aws_instance.dev-instance-windows-onpremise.private_ip
 }
 
-resource "aws_vpc_endpoint" "ec2messages" {
-  vpc_id              = aws_vpc.terraform-default-vpc-aws.id
-  service_name        = "com.amazonaws.us-east-1.ec2messages"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.terraform-private-subnet-aws.id]
-  security_group_ids  = [aws_security_group.vpc_endpoint_sg.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "ec2messages-endpoint"
-  }
+output "onpremise_instance_id" {
+  description = "Instance ID of on-premise Windows instance"
+  value       = aws_instance.dev-instance-windows-onpremise.id
 }
 
-# Route 53 Private Hosted Zones to make SSM endpoints accessible from on-premise
-resource "aws_route53_zone" "ssm_private" {
-  name = "ssm.us-east-1.amazonaws.com"
-
-  vpc {
-    vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
-  }
-
-  tags = {
-    Name = "ssm-private-hosted-zone"
-  }
-}
-
-resource "aws_route53_record" "ssm" {
-  zone_id = aws_route53_zone.ssm_private.zone_id
-  name    = "ssm.us-east-1.amazonaws.com"
-  type    = "A"
-
-  alias {
-    name                   = aws_vpc_endpoint.ssm.dns_entry[0].dns_name
-    zone_id                = aws_vpc_endpoint.ssm.dns_entry[0].hosted_zone_id
-    evaluate_target_health = false
-  }
-}
-
-resource "aws_route53_zone" "ssmmessages_private" {
-  name = "ssmmessages.us-east-1.amazonaws.com"
-
-  vpc {
-    vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
-  }
-
-  tags = {
-    Name = "ssmmessages-private-hosted-zone"
-  }
-}
-
-resource "aws_route53_record" "ssmmessages" {
-  zone_id = aws_route53_zone.ssmmessages_private.zone_id
-  name    = "ssmmessages.us-east-1.amazonaws.com"
-  type    = "A"
-
-  alias {
-    name                   = aws_vpc_endpoint.ssmmessages.dns_entry[0].dns_name
-    zone_id                = aws_vpc_endpoint.ssmmessages.dns_entry[0].hosted_zone_id
-    evaluate_target_health = false
-  }
-}
-
-resource "aws_route53_zone" "ec2messages_private" {
-  name = "ec2messages.us-east-1.amazonaws.com"
-
-  vpc {
-    vpc_id = aws_vpc.terraform-default-vpc-onpremise.id
-  }
-
-  tags = {
-    Name = "ec2messages-private-hosted-zone"
-  }
-}
-
-resource "aws_route53_record" "ec2messages" {
-  zone_id = aws_route53_zone.ec2messages_private.zone_id
-  name    = "ec2messages.us-east-1.amazonaws.com"
-  type    = "A"
-
-  alias {
-    name                   = aws_vpc_endpoint.ec2messages.dns_entry[0].dns_name
-    zone_id                = aws_vpc_endpoint.ec2messages.dns_entry[0].hosted_zone_id
-    evaluate_target_health = false
-  }
+output "transit_gateway_id" {
+  description = "Transit Gateway ID"
+  value       = aws_ec2_transit_gateway.main.id
 }
