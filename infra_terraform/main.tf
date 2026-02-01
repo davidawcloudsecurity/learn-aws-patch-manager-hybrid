@@ -26,6 +26,22 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "patch_manager_enc
   }
 }
 
+resource "aws_s3_bucket_policy" "patch_manager_policy" {
+  bucket = aws_s3_bucket.patch_manager_bucket.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { AWS = aws_iam_role.ssm_role.arn }
+      Action = ["s3:GetObject", "s3:PutObject", "s3:ListBucket"]
+      Resource = [
+        aws_s3_bucket.patch_manager_bucket.arn,
+        "${aws_s3_bucket.patch_manager_bucket.arn}/*"
+      ]
+    }]
+  })
+}
+
 # S3 Bucket Public Access Block
 resource "aws_s3_bucket_public_access_block" "patch_manager_pab" {
   bucket = aws_s3_bucket.patch_manager_bucket.id
