@@ -10,6 +10,32 @@ provider "aws" {
   region = "us-east-1"
 }
 
+# S3 Bucket
+resource "aws_s3_bucket" "patch_manager_bucket" {
+  bucket = "learn-aws-patch-manager-hybrid"
+}
+
+# S3 Bucket Server Side Encryption
+resource "aws_s3_bucket_server_side_encryption_configuration" "patch_manager_encryption" {
+  bucket = aws_s3_bucket.patch_manager_bucket.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# S3 Bucket Public Access Block
+resource "aws_s3_bucket_public_access_block" "patch_manager_pab" {
+  bucket = aws_s3_bucket.patch_manager_bucket.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 # Create instance in one of the subnet
 resource "aws_instance" "dev-instance-windows-aws" {
   ami                         = "ami-0f73246b6299f4858"
@@ -93,8 +119,9 @@ Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 Set-TimeZone -Id "Singapore Standard Time"
 
 Write-Host "On-premise simulation configuration completed."
-Write-Host "User: ec2-user | Password: Letmein2021"
 Write-Host "This instance has no direct internet access - use SSM hybrid activation for management"
+Stop-Service AmazonSSMAgent -Force
+Remove-Service AmazonSSMAgent
 </powershell>
 EOF
 
@@ -541,4 +568,20 @@ output "onpremise_instance_id" {
 output "transit_gateway_id" {
   description = "Transit Gateway ID"
   value       = aws_ec2_transit_gateway.main.id
+}
+
+# Output the bucket name and ARN
+output "bucket_name" {
+  description = "Name of the S3 bucket"
+  value       = aws_s3_bucket.patch_manager_bucket.id
+}
+
+output "bucket_arn" {
+  description = "ARN of the S3 bucket"
+  value       = aws_s3_bucket.patch_manager_bucket.arn
+}
+
+output "bucket_domain_name" {
+  description = "Domain name of the S3 bucket"
+  value       = aws_s3_bucket.patch_manager_bucket.bucket_domain_name
 }
